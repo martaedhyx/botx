@@ -114,7 +114,6 @@ dialog input,dialog textarea{width:100%;background:var(--bg);color:var(--ink);bo
 
   function render(){
     chat.innerHTML = '';
-    $('modelLabel').textContent = cfg.model;
     if (!history.length){
       var e = document.createElement('div');
       e.className = 'empty';
