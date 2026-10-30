@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chatbot Gemini</title>
+<style>
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --ink:#1b2430; --muted:#66727f; --line:#d9dfe6;
+  --me:#0f5f73; --me-ink:#ffffff; --bot:#ffffff; --accent:#0f5f73; --err:#b3261e; --code:#e6ebf0;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121821; --panel:#1a222d; --ink:#e6ebf1; --muted:#8c98a6; --line:#2a3441;
+    --me:#2a8aa3; --me-ink:#06161c; --bot:#1a222d; --accent:#4fb3cc; --err:#ff8a80; --code:#0f1620;
+    color-scheme: dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;max-width:760px;margin:0 auto;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:17px;margin:0;font-weight:650}
+header small{display:block;color:var(--muted);font-size:12px;font-weight:400}
+.tools{display:flex;gap:8px}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:10px;padding:8px 12px}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--me-ink)}
+button:disabled{opacity:.5;cursor:default}
+#chat{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.empty{margin:auto;text-align:center;color:var(--muted);max-width:30ch}
+.empty b{display:block;color:var(--ink);font-size:18px;margin-bottom:4px}
+.msg{max-width:86%;padding:10px 14px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}
+.msg.user{align-self:flex-end;background:var(--me);color:var(--me-ink);border-bottom-right-radius:4px}
+.msg.bot{align-self:flex-start;background:var(--bot);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg.error{align-self:flex-start;color:var(--err);border:1px solid var(--err);background:transparent}
+.msg pre{background:var(--code);padding:10px;border-radius:8px;overflow-x:auto;margin:8px 0;white-space:pre}
+.msg code{background:var(--code);padding:1px 5px;border-radius:5px;font:13.5px ui-monospace,Menlo,Consolas,monospace}
+.msg pre code{background:none;padding:0}
+.typing{color:var(--muted);font-style:italic}
+form.input{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);background:var(--panel)}
+textarea{flex:1;resize:none;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;max-height:140px}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);width:min(440px,92vw);padding:20px}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog h2{margin:0 0 12px;font-size:18px}
+label{display:block;margin:12px 0 4px;font-size:14px;font-weight:600}
+label span{display:block;font-weight:400;color:var(--muted);font-size:12.5px}
+dialog input,dialog textarea{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:inherit}
+.row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+@media (prefers-reduced-motion: no-preference){ .msg{animation:in .15s ease-out} @keyframes in{from{opacity:0;transform:translateY(4px)}} }
+</style>
+</head>
+<body>
+<header>
+  <h1>Chatbot Gemini<small id="modelLabel"></small></h1>
+  <div class="tools">
+    <button id="clearBtn" type="button">Hapus chat</button>
+    <button id="settingsBtn" type="button">Pengaturan</button>
+  </div>
+</header>
+
+<main id="chat" aria-live="polite"></main>
+
+<form class="input" id="form">
+  <textarea id="text" rows="1" placeholder="Tulis pesan..." aria-label="Pesan"></textarea>
+  <button class="primary" id="sendBtn" type="submit">Kirim</button>
+</form>
+
+<dialog id="dlg">
+  <h2>Pengaturan</h2>
+  <label for="key">API key Gemini<span>Dibuat di aistudio.google.com. Disimpan hanya di browser ini.</span></label>
+  <input id="key" type="password" autocomplete="off" placeholder="AIza...">
+  <label for="model">Model<span>Untuk akun gratis, pakai model Flash atau Flash-Lite.</span></label>
+  <input id="model" list="models" placeholder="gemini-2.5-flash">
+  <datalist id="models"><option value="gemini-2.5-flash"><option value="gemini-2.5-flash-lite"></datalist>
+  <label for="sys">Kepribadian bot<span>Instruksi yang selalu diikuti bot.</span></label>
+  <textarea id="sys" rows="3"></textarea>
+  <div class="row">
+    <button type="button" id="cancelBtn">Batal</button>
+    <button type="button" class="primary" id="saveBtn">Simpan</button>
+  </div>
+</dialog>
+
+<script>
+(function(){
+  var DEFAULTS = {
+    model: 'gemini-2.5-flash',
+    sys: 'Kamu asisten yang ramah dan membantu. Jawab dalam bahasa yang dipakai pengguna, singkat dan jelas.'
+  };
+  var $ = function(id){ return document.getElementById(id); };
+  var chat = $('chat'), text = $('text'), sendBtn = $('sendBtn'), dlg = $('dlg');
+  var history = [];
+  var busy = false;
+
+  function load(k, d){ try { var v = localStorage.getItem(k); return v === null ? d : v; } catch(e){ return d; } }
+  function save(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+
+  var cfg = { key: load('gem_key',''), model: load('gem_model', DEFAULTS.model), sys: load('gem_sys', DEFAULTS.sys) };
+  try { history = JSON.parse(load('gem_hist','[]')) || []; } catch(e){ history = []; }
+
+  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function md(s){
+    s = esc(s);
+    s = s.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, function(_,c){ return '<pre><code>'+c.replace(/\n$/,'')+'</code></pre>'; });
+    s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    return s;
+  }
+
+  function add(role, content, cls){
+    var d = document.createElement('div');
+    d.className = 'msg ' + (cls || role);
+    if (role === 'bot' && !cls) d.innerHTML = md(content); else d.textContent = content;
+    chat.appendChild(d);
+    chat.scrollTop = chat.scrollHeight;
+    return d;
+  }
+
+  function render(){
+    chat.innerHTML = '';
+    $('modelLabel').textContent = cfg.model;
+    if (!history.length){
+      var e = document.createElement('div');
+      e.className = 'empty';
+      e.innerHTML = '<b>Halo! Mau bahas apa?</b>' + (cfg.key ? 'Ketik pesan di bawah untuk mulai.' : 'Buka Pengaturan dan isi API key dulu.');
+      chat.appendChild(e);
+      return;
+    }
+    history.forEach(function(m){ add(m.role === 'user' ? 'user' : 'bot', m.parts[0].text); });
+  }
+
+  function errorText(status, msg){
+    if (status === 400 && /API key/i.test(msg)) return 'API key tidak valid. Periksa lagi di Pengaturan.';
+    if (status === 403) return 'API key ditolak atau tidak punya akses ke model ini. Periksa key dan nama model.';
+    if (status === 404) return 'Model "' + cfg.model + '" tidak ditemukan. Ganti nama model di Pengaturan.';
+    if (status === 429) return 'Batas pemakaian gratis tercapai. Tunggu satu menit lalu coba lagi.';
+    return 'Terjadi kesalahan (' + status + '). ' + msg;
+  }
+
+  async function send(){
+    var q = text.value.trim();
+    if (!q || busy) return;
+    if (!cfg.key){ openSettings(); return; }
+    busy = true; sendBtn.disabled = true;
+    text.value = ''; text.style.height = 'auto';
+    history.push({ role:'user', parts:[{ text:q }] });
+    render();
+    var wait = add('bot', 'Mengetik...', 'bot typing');
+    try {
+      var res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(cfg.model) + ':generateContent', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'x-goog-api-key': cfg.key },
+        body: JSON.stringify({
+          system_instruction:{ parts:[{ text: cfg.sys }] },
+          contents: history
+        })
+      });
+      var data = await res.json().catch(function(){ return {}; });
+      if (!res.ok){
+        history.pop();
+        render();
+        add('bot', errorText(res.status, (data.error && data.error.message) || ''), 'error');
+        text.value = q;
+      } else {
+        var parts = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+        var answer = parts ? parts.map(function(p){ return p.text || ''; }).join('') : '';
+        if (!answer) answer = 'Bot tidak memberi jawaban (mungkin diblokir filter keamanan). Coba ubah pertanyaannya.';
+        history.push({ role:'model', parts:[{ text:answer }] });
+        save('gem_hist', JSON.stringify(history));
+        render();
+      }
+    } catch(err){
+      history.pop();
+      render();
+      add('bot', 'Tidak bisa terhubung. Periksa koneksi internet kamu.', 'error');
+      text.value = q;
+    }
+    busy = false; sendBtn.disabled = false; text.focus();
+  }
+
+  function openSettings(){
+    $('key').value = cfg.key; $('model').value = cfg.model; $('sys').value = cfg.sys;
+    dlg.showModal();
+  }
+
+  $('form').addEventListener('submit', function(e){ e.preventDefault(); send(); });
+  text.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); send(); }
+  });
+  text.addEventListener('input', function(){ text.style.height = 'auto'; text.style.height = Math.min(text.scrollHeight, 140) + 'px'; });
+  $('settingsBtn').addEventListener('click', openSettings);
+  $('cancelBtn').addEventListener('click', function(){ dlg.close(); });
+  $('saveBtn').addEventListener('click', function(){
+    cfg.key = $('key').value.trim();
+    cfg.model = $('model').value.trim() || DEFAULTS.model;
+    cfg.sys = $('sys').value.trim() || DEFAULTS.sys;
+    save('gem_key', cfg.key); save('gem_model', cfg.model); save('gem_sys', cfg.sys);
+    dlg.close(); render();
+  });
+  $('clearBtn').addEventListener('click', function(){
+    if (!history.length) return;
+    if (confirm('Hapus semua percakapan?')){ history = []; save('gem_hist','[]'); render(); }
+  });
+
+  render();
+  if (!cfg.key) openSettings();
+})();
+</script>
+</body>
+</html>
